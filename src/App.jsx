@@ -2169,7 +2169,7 @@ function App() {
         })() : (
           <>
             <h2><span className="icon-wrap"><Gamepad2 size={22} /></span> Games by Sport Committee</h2>
-            <p className="section-desc">Participate in games organised by the sport committee. Click &quot;Generate QR&quot; to open the game page with QR code.</p>
+            <p className="section-desc">Participate in games organised by the sport committee.</p>
             {games.length === 0 ? (
               <div className="empty-state">
                 <Sparkles size={40} className="empty-state-icon" strokeWidth={1.5} />
