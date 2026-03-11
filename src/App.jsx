@@ -265,8 +265,16 @@ function App() {
   useEffect(() => {
     const sync = () => {
       const hashRaw = window.location.hash.slice(1).replace(/^\/+/, '')
-      const valid = getValidPage(hashRaw || 'leaderboard', isAdmin, isLoggedIn, canAccessCollection)
-      if (valid !== hashRaw) {
+      const hasScanParam = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('scan')
+      let valid = getValidPage(hashRaw || 'leaderboard', isAdmin, isLoggedIn, canAccessCollection)
+      // When user opened a game QR link (?scan=) but is not logged in, send them to login first
+      if (!isLoggedIn && hasScanParam) {
+        valid = 'login'
+        if (window.location.hash.replace(/^#\/?/, '').toLowerCase() !== 'login') {
+          window.location.hash = 'login'
+        }
+      }
+      if (valid !== hashRaw && !(!isLoggedIn && hasScanParam)) {
         window.location.hash = valid
       }
       setCurrentPage(valid)
@@ -673,8 +681,9 @@ function App() {
 
   const getScanUrl = (gameId) => {
     if (typeof window === 'undefined') return ''
-    const base = `${window.location.origin}${window.location.pathname || '/'}`
-    return `${base}${base.endsWith('/') ? '' : ''}?scan=${encodeURIComponent(gameId)}`
+    const base = `${window.location.origin}${window.location.pathname || '/'}`.replace(/\/+$/, '') || window.location.origin
+    const sep = base.includes('?') ? '&' : '?'
+    return `${base}${sep}scan=${encodeURIComponent(gameId)}`
   }
 
   const getRankBadge = (rank) => {
@@ -1248,6 +1257,9 @@ function App() {
         <div className="login-page-wrap">
           <div className="login-card">
             <h1 className="login-title"><Trophy size={36} strokeWidth={2} className="login-title-icon" /> MSC & CTSB SPORTS</h1>
+            {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('scan') && (
+              <p className="login-scan-notice">Log in with your account to join the game, submit your answer, and earn points.</p>
+            )}
             <form onSubmit={handleLogin} className="login-form">
               <div className="field">
                 <label htmlFor="login-email"><Mail size={16} className="label-icon" /> Email</label>
