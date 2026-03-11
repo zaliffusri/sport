@@ -14,8 +14,16 @@ The app uses **Supabase** (PostgreSQL) for production data. Tables and usage:
 | **spendings** | Spending records: id, description, amount, branch. |
 | **audit_log** | Audit entries: id, timestamp, message, user_email. |
 | **app_settings** | Key-value: `opening_balance`, `admin_email`. |
+| **slideshow** | Homepage carousel: id, image_url, title, description, display_date, sort_order. |
 
 ---
+
+## How to create or update the database
+
+- **First time:** Run the full **`schema.sql`** in Supabase SQL Editor (creates all tables, indexes, and seeds `app_settings`).
+- **Already have tables, need slideshow only:** Run **`update-add-slideshow.sql`** to add just the `slideshow` table and index.
+
+For full column details, see **`TABLE-DETAILS.md`**.
 
 ## Column details
 

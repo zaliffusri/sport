@@ -1,5 +1,8 @@
 -- MSC & CTSB SPORTS - Supabase (PostgreSQL) schema
 -- Run this in Supabase Dashboard → SQL Editor → New query
+--
+-- First time: run this entire file.
+-- If you already have tables and only need slideshow: run update-add-slideshow.sql instead.
 
 -- ========== COLLEAGUES (people / users) ==========
 CREATE TABLE IF NOT EXISTS colleagues (

@@ -28,7 +28,12 @@ export default async function handler(req, res) {
         .select('*')
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: false })
-      if (error) throw error
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          return res.status(200).json([])
+        }
+        throw error
+      }
       const list = (data || []).map(toSlide)
       return res.status(200).json(list)
     }
@@ -96,6 +101,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   } catch (err) {
     console.error('slideshow API', err)
-    return res.status(500).json({ error: err.message || 'Server error' })
+    const msg = err.message || 'Server error'
+    if (req.method === 'GET' && (err.code === '42P01' || String(msg).includes('does not exist'))) {
+      return res.status(200).json([])
+    }
+    return res.status(500).json({ error: msg })
   }
 }
