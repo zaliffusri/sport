@@ -456,22 +456,24 @@ function App() {
         setTimeout(() => setMessage(null), 3000)
         return
       }
-      setGames((prev) =>
-        prev.map((g) =>
-          g.id === gameId ? { ...g, participants: [...(g.participants || []), auth.userEmail] } : g
-        )
+      const nextGames = games.map((g) =>
+        g.id === gameId ? { ...g, participants: [...(g.participants || []), auth.userEmail] } : g
       )
-      setColleagues((prev) =>
-        prev.map((c) =>
-          (c.email || '').toLowerCase() === auth.userEmail.toLowerCase()
-            ? {
-                ...c,
-                points: (c.points || 0) + joinPts,
-                gameHistory: [...(c.gameHistory || []), { gameId, gameName: game.name, points: joinPts }],
-              }
-            : c
-        )
+      const nextColleagues = colleagues.map((c) =>
+        (c.email || '').toLowerCase() === auth.userEmail.toLowerCase()
+          ? {
+              ...c,
+              points: (c.points || 0) + joinPts,
+              gameHistory: [...(c.gameHistory || []), { gameId, gameName: game.name, points: joinPts }],
+            }
+          : c
       )
+      setGames(nextGames)
+      setColleagues(nextColleagues)
+      if (useApi) {
+        api.setGames(nextGames).catch(console.error)
+        api.setColleagues(nextColleagues).catch(console.error)
+      }
       addAuditLog(`${auth.userEmail} joined game: ${game.name} (standard)${joinPts > 0 ? ` +${joinPts} pts` : ''}`, auth.userEmail)
       window.history.replaceState({}, '', window.location.pathname || '/')
       setMessage(joinPts > 0 ? `You joined ${game.name}! +${joinPts} point(s).` : `You joined ${game.name}!`)
@@ -484,42 +486,31 @@ function App() {
       const correctPts = Math.max(0, Number(game.guessPointsCorrect)) || 1
       const scannedBy = game.scannedBy || []
       const isFirstScan = !scannedBy.includes(auth.userEmail)
-      if (!isInParticipants) {
-        setGames((prev) =>
-          prev.map((g) =>
-            g.id === gameId ? { ...g, participants: [...(g.participants || []), auth.userEmail] } : g
-          )
-        )
-      }
+      let nextGames = games.map((g) => {
+        if (g.id !== gameId) return g
+        const nextParticipants = isInParticipants ? (g.participants || []) : [...(g.participants || []), auth.userEmail]
+        const nextScannedBy = isFirstScan ? [...(g.scannedBy || []), auth.userEmail] : (g.scannedBy || [])
+        return { ...g, participants: nextParticipants, scannedBy: nextScannedBy }
+      })
+      let nextColleagues = colleagues
       if (isFirstScan) {
         const isMember = colleagues.some((c) => (c.email || '').toLowerCase() === auth.userEmail.toLowerCase())
-        if (isMember) {
-          setColleagues((prev) =>
-            prev.map((c) =>
-              (c.email || '').toLowerCase() === auth.userEmail.toLowerCase()
-                ? {
-                    ...c,
-                    points: (c.points || 0) + joinPts,
-                    gameHistory: [...(c.gameHistory || []), { gameId, gameName: game.name, points: joinPts }],
-                  }
-                : c
-            )
-          )
-        } else {
-          setColleagues((prev) =>
-            prev.map((c) =>
-              (c.email || '').toLowerCase() === auth.userEmail.toLowerCase()
-                ? { ...c, gameHistory: [...(c.gameHistory || []), { gameId, gameName: game.name, points: 0 }] }
-                : c
-            )
-          )
-        }
-        setGames((prev) =>
-          prev.map((g) =>
-            g.id === gameId ? { ...g, scannedBy: [...(g.scannedBy || []), auth.userEmail] } : g
-          )
+        nextColleagues = colleagues.map((c) =>
+          (c.email || '').toLowerCase() === auth.userEmail.toLowerCase()
+            ? {
+                ...c,
+                points: (c.points || 0) + (isMember ? joinPts : 0),
+                gameHistory: [...(c.gameHistory || []), { gameId, gameName: game.name, points: isMember ? joinPts : 0 }],
+              }
+            : c
         )
         addAuditLog(`${auth.userEmail} joined guess game: ${game.name} (+${joinPts} pt scan)`, auth.userEmail)
+      }
+      setGames(nextGames)
+      setColleagues(nextColleagues)
+      if (useApi) {
+        api.setGames(nextGames).catch(console.error)
+        api.setColleagues(nextColleagues).catch(console.error)
       }
       const guessAnswers = game.guessAnswers || {}
       if (guessAnswers[auth.userEmail] !== undefined && guessAnswers[auth.userEmail] !== '') {
@@ -545,9 +536,8 @@ function App() {
     }
     const points = Number(game.pointsPerScan) || 10
     const isMember = colleagues.some((c) => (c.email || '').toLowerCase() === auth.userEmail.toLowerCase())
-    if (isMember) {
-      setColleagues((prev) =>
-        prev.map((c) =>
+    const nextColleagues = isMember
+      ? colleagues.map((c) =>
           (c.email || '').toLowerCase() === auth.userEmail.toLowerCase()
             ? {
                 ...c,
@@ -556,18 +546,21 @@ function App() {
               }
             : c
         )
-      )
-    }
-    setGames((prev) =>
-      prev.map((g) =>
-        g.id === gameId ? { ...g, scannedBy: [...(g.scannedBy || []), auth.userEmail] } : g
-      )
+      : colleagues
+    const nextGames = games.map((g) =>
+      g.id === gameId ? { ...g, scannedBy: [...(g.scannedBy || []), auth.userEmail] } : g
     )
+    setGames(nextGames)
+    setColleagues(nextColleagues)
+    if (useApi) {
+      api.setGames(nextGames).catch(console.error)
+      api.setColleagues(nextColleagues).catch(console.error)
+    }
     if (isMember) addAuditLog(`${auth.userEmail} scanned culling game: ${game.name} (+${points} pts)`, auth.userEmail)
     window.history.replaceState({}, '', window.location.pathname || '/')
     setMessage(isMember ? `You earned ${points} points for ${game.name}!` : 'Only members earn points from scanning.')
     setTimeout(() => setMessage(null), 4000)
-  }, [auth?.userEmail, games, colleagues])
+  }, [auth?.userEmail, games, colleagues, useApi])
 
   useEffect(() => {
     if (useApi && initialLoadDone.current) {
