@@ -60,7 +60,13 @@ export default async function handler(req, res) {
           const { error: uploadError } = await supabase.storage
             .from(BUCKET)
             .upload(path, buffer, { contentType: contentType.split(';')[0].trim(), upsert: true })
-          if (uploadError) throw uploadError
+          if (uploadError) {
+            const m = uploadError.message || ''
+            if (m.includes('Bucket not found') || m.includes('not found') || m.includes('404')) {
+              return res.status(503).json({ error: "Slideshow storage not set up. In Supabase go to Storage → New bucket → name it 'slideshow' → set to Public." })
+            }
+            throw uploadError
+          }
           const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path)
           imageUrl = urlData?.publicUrl || ''
         }
@@ -75,7 +81,13 @@ export default async function handler(req, res) {
           display_date: String(displayDate ?? '').trim(),
           sort_order: 0,
         })
-        if (insertError) throw insertError
+        if (insertError) {
+          const m = insertError.message || ''
+          if (insertError.code === '42P01' || m.includes('does not exist') || m.includes('relation')) {
+            return res.status(503).json({ error: "Slideshow table not found. Run database/schema.sql or update-add-slideshow.sql in Supabase SQL Editor." })
+          }
+          throw insertError
+        }
         return res.status(200).json({ ok: true, id })
       }
 
@@ -104,6 +116,12 @@ export default async function handler(req, res) {
     const msg = err.message || 'Server error'
     if (req.method === 'GET' && (err.code === '42P01' || String(msg).includes('does not exist'))) {
       return res.status(200).json([])
+    }
+    if (err.code === '42P01' || String(msg).includes('does not exist') || String(msg).includes('relation')) {
+      return res.status(503).json({ error: "Slideshow table not found. Run database/schema.sql or update-add-slideshow.sql in Supabase SQL Editor." })
+    }
+    if (String(msg).includes('Bucket') || String(msg).includes('storage') || String(msg).includes('404')) {
+      return res.status(503).json({ error: "Slideshow storage not set up. In Supabase create a public Storage bucket named 'slideshow'." })
     }
     return res.status(500).json({ error: msg })
   }
