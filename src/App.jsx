@@ -29,6 +29,7 @@ import {
   Menu,
   X,
   HelpCircle,
+  ImagePlus,
 } from 'lucide-react'
 import './App.css'
 
@@ -39,6 +40,7 @@ const SPENDINGS_STORAGE_KEY = 'company-leaderboard-spendings'
 const OPENING_BALANCE_STORAGE_KEY = 'company-leaderboard-opening-balance'
 const GAMES_STORAGE_KEY = 'company-leaderboard-games'
 const AUDIT_LOG_STORAGE_KEY = 'company-leaderboard-audit-log'
+const SLIDESHOW_STORAGE_KEY = 'company-leaderboard-slideshow'
 const MAX_AUDIT_ENTRIES = 500
 
 const ADMIN_EMAIL = 'admin@cybersolution.com.my'
@@ -107,6 +109,7 @@ const PAGES = {
   culling: { label: 'Culling game', adminOnly: false },
   profile: { label: 'Profile', adminOnly: false },
   settings: { label: 'Audit log', adminOnly: true },
+  slideshow: { label: 'Slideshow', adminOnly: true },
 }
 
 function getValidPage(hash, isAdmin, isLoggedIn, canAccessCollection) {
@@ -169,6 +172,7 @@ function App() {
     culling: 'Culling game',
     profile: 'Profile',
     settings: 'Audit log',
+    slideshow: 'Slideshow',
   }
   useEffect(() => {
     const base = 'MSC & CTSB SPORTS'
@@ -368,9 +372,45 @@ function App() {
   const [guessAnswerInput, setGuessAnswerInput] = useState('')
   const [auditLog, setAuditLog] = useState(() => (useApi ? [] : getAuditLog()))
 
+  const [slideTitle, setSlideTitle] = useState('')
+  const [slideDescription, setSlideDescription] = useState('')
+  const [slideDate, setSlideDate] = useState('')
+  const [slideUploadError, setSlideUploadError] = useState('')
+  const slideFileRef = useRef(null)
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
+
+  const [slides, setSlides] = useState(() => {
+    if (useApi) return []
+    try {
+      const raw = localStorage.getItem(SLIDESHOW_STORAGE_KEY)
+      return raw ? JSON.parse(raw) : []
+    } catch (_) {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    if (currentPage !== 'leaderboard' || slides.length <= 1) return
+    const t = setInterval(() => {
+      setCurrentSlideIndex((i) => (i + 1) % slides.length)
+    }, 5000)
+    return () => clearInterval(t)
+  }, [currentPage, slides.length])
+
+  useEffect(() => {
+    if (slides.length > 0 && currentSlideIndex >= slides.length) setCurrentSlideIndex(0)
+  }, [slides.length, currentSlideIndex])
+
   useEffect(() => {
     if (!useApi) return
     let cancelled = false
+    const finish = () => {
+      if (!cancelled) {
+        setDataLoading(false)
+        setTimeout(() => { initialLoadDone.current = true }, 100)
+      }
+    }
+    const fallback = setTimeout(finish, 15000)
     Promise.all([
       api.getColleagues(),
       api.getGames(),
@@ -380,23 +420,26 @@ function App() {
     ])
       .then(([colleaguesList, gamesList, spendingsList, auditList, settings]) => {
         if (cancelled) return
+        clearTimeout(fallback)
         setColleagues(Array.isArray(colleaguesList) ? colleaguesList : [])
         setGames(Array.isArray(gamesList) ? gamesList : [])
         setSpendings(Array.isArray(spendingsList) ? spendingsList : [])
         setAuditLog(Array.isArray(auditList) ? auditList.slice(0, MAX_AUDIT_ENTRIES) : [])
         const ob = settings?.opening_balance ?? settings?.openingBalance
         setOpeningBalance(ob !== undefined && ob !== null ? Number(ob) || 0 : 0)
-        setDataLoading(false)
-        setTimeout(() => { initialLoadDone.current = true }, 100)
+        finish()
       })
       .catch((err) => {
         if (!cancelled) {
+          clearTimeout(fallback)
           console.error('Initial API load failed', err)
-          setDataLoading(false)
-          initialLoadDone.current = true
+          finish()
         }
       })
-    return () => { cancelled = true }
+    api.getSlideshow().then((slidesList) => {
+      if (!cancelled) setSlides(Array.isArray(slidesList) ? slidesList : [])
+    }).catch(() => { if (!cancelled) setSlides([]) })
+    return () => { cancelled = true; clearTimeout(fallback) }
   }, [useApi])
 
   const addAuditLog = (message, userEmail) => {
@@ -413,6 +456,70 @@ function App() {
       if (!useApi) localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(next))
       return next
     })
+  }
+
+  const handleAddSlide = (e) => {
+    e.preventDefault()
+    setSlideUploadError('')
+    const file = slideFileRef.current?.files?.[0]
+    if (!file || !file.type.startsWith('image/')) {
+      setSlideUploadError('Please select an image file (JPEG, PNG, or GIF).')
+      return
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setSlideUploadError('Image must be under 4MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const imageBase64 = reader.result
+      if (useApi) {
+        api.addSlide({ imageBase64, title: slideTitle.trim(), description: slideDescription.trim(), displayDate: slideDate.trim() })
+          .then(() => {
+            return api.getSlideshow()
+          })
+          .then((list) => {
+            setSlides(Array.isArray(list) ? list : [])
+            setSlideTitle('')
+            setSlideDescription('')
+            setSlideDate('')
+            if (slideFileRef.current) slideFileRef.current.value = ''
+            setMessage('Slide added. It will appear on the homepage.')
+            setTimeout(() => setMessage(null), 3000)
+          })
+          .catch((err) => setSlideUploadError(err?.message || 'Upload failed'))
+      } else {
+        const id = `slide-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        const newSlide = { id, imageUrl: imageBase64, title: slideTitle.trim(), description: slideDescription.trim(), displayDate: slideDate.trim(), sortOrder: 0 }
+        setSlides((prev) => {
+          const next = [...prev, newSlide]
+          localStorage.setItem(SLIDESHOW_STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
+        setSlideTitle('')
+        setSlideDescription('')
+        setSlideDate('')
+        if (slideFileRef.current) slideFileRef.current.value = ''
+        setMessage('Slide added.')
+        setTimeout(() => setMessage(null), 3000)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDeleteSlide = (id) => {
+    if (!window.confirm('Remove this slide from the homepage?')) return
+    if (useApi) {
+      api.deleteSlide(id).then(() => api.getSlideshow()).then((list) => setSlides(Array.isArray(list) ? list : []))
+    } else {
+      setSlides((prev) => {
+        const next = prev.filter((s) => s.id !== id)
+        localStorage.setItem(SLIDESHOW_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+    }
+    setMessage('Slide removed.')
+    setTimeout(() => setMessage(null), 3000)
   }
 
   useEffect(() => {
@@ -1133,6 +1240,16 @@ function App() {
 
   const isStaging = import.meta.env.VITE_APP_ENV === 'preview'
 
+  if (useApi && dataLoading) {
+    return (
+      <div className="app app-loading-wrap">
+        <div className="app-loading" role="status">
+          <span>Loading…</span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       {isStaging && (
@@ -1179,6 +1296,7 @@ function App() {
                   <a href="#culling" className={currentPage === 'culling' ? 'active' : ''} onClick={() => { setCurrentPage('culling'); setNavOpen(false); }}><PocketKnife size={18} /> Culling game</a>
                   <a href="#profile" className={currentPage === 'profile' ? 'active' : ''} onClick={() => setNavOpen(false)}><UserCircle size={18} /> Profile</a>
                   {isAdmin && <a href="#settings" className={currentPage === 'settings' ? 'active' : ''} onClick={() => setNavOpen(false)}><ClipboardList size={18} /> Audit log</a>}
+                  {isAdmin && <a href="#slideshow" className={currentPage === 'slideshow' ? 'active' : ''} onClick={() => setNavOpen(false)}><ImagePlus size={18} /> Slideshow</a>}
                 </>
               )}
             </div>
@@ -1633,6 +1751,76 @@ function App() {
         )}
         {auditLog.length > 100 && (
           <p className="section-desc muted">Showing latest 100 of {auditLog.length} entries.</p>
+        )}
+      </section>
+      )}
+
+      {currentPage === 'slideshow' && isAdmin && (
+      <section className="slideshow-admin section-card">
+        <h2><span className="icon-wrap"><ImagePlus size={22} /></span> Homepage slideshow</h2>
+        <p className="section-desc">Upload images with title, description, and date. They will appear as a slideshow on the homepage (leaderboard).</p>
+        <form className="form-card add-slide-form" onSubmit={handleAddSlide}>
+          <h3>Add slide</h3>
+          <div className="field">
+            <label htmlFor="slide-image">Image</label>
+            <input
+              id="slide-image"
+              type="file"
+              ref={slideFileRef}
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              required
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="slide-title">Title</label>
+            <input
+              id="slide-title"
+              type="text"
+              placeholder="e.g. Sports Day 2026"
+              value={slideTitle}
+              onChange={(e) => setSlideTitle(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="slide-desc">Description / details</label>
+            <textarea
+              id="slide-desc"
+              placeholder="Optional description"
+              value={slideDescription}
+              onChange={(e) => setSlideDescription(e.target.value)}
+              rows={2}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="slide-date">Date</label>
+            <input
+              id="slide-date"
+              type="date"
+              value={slideDate}
+              onChange={(e) => setSlideDate(e.target.value)}
+            />
+          </div>
+          {slideUploadError && <p className="login-error">{slideUploadError}</p>}
+          <button type="submit"><ImagePlus size={18} /> Add slide</button>
+        </form>
+        {slides.length > 0 && (
+          <div className="slideshow-list-admin">
+            <h3>Current slides ({slides.length})</h3>
+            <div className="slideshow-list-cards">
+              {slides.map((slide) => (
+                <div key={slide.id} className="slideshow-list-card">
+                  <img src={slide.imageUrl} alt={slide.title} className="slideshow-list-thumb" />
+                  <div className="slideshow-list-info">
+                    {slide.title && <strong>{slide.title}</strong>}
+                    {slide.displayDate && <span className="muted">{formatGameDate(slide.displayDate) || slide.displayDate}</span>}
+                  </div>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => handleDeleteSlide(slide.id)} title="Remove slide">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </section>
       )}
@@ -2368,6 +2556,40 @@ function App() {
       })()}
 
       {currentPage === 'leaderboard' && (
+      <>
+      {slides.length > 0 && (
+        <section className="home-slideshow" aria-label="Slideshow">
+          <div className="slideshow-track">
+            {slides.map((slide, idx) => (
+              <div
+                key={slide.id}
+                className={`slideshow-slide ${idx === currentSlideIndex ? 'active' : ''}`}
+                aria-hidden={idx !== currentSlideIndex}
+              >
+                <img src={slide.imageUrl} alt={slide.title || 'Slide'} className="slideshow-image" />
+                <div className="slideshow-caption">
+                  {slide.title && <span className="slideshow-title">{slide.title}</span>}
+                  {slide.description && <span className="slideshow-desc">{slide.description}</span>}
+                  {slide.displayDate && <span className="slideshow-date">{formatGameDate(slide.displayDate) || slide.displayDate}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {slides.length > 1 && (
+            <div className="slideshow-dots">
+              {slides.map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`slideshow-dot ${idx === currentSlideIndex ? 'active' : ''}`}
+                  aria-label={`Go to slide ${idx + 1}`}
+                  onClick={() => setCurrentSlideIndex(idx)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       <section className="leaderboard section-card section-card--leaderboard">
         <h2><span className="icon-wrap"><Trophy size={22} /></span> Rankings</h2>
         {sortedColleagues.length === 0 ? (
@@ -2392,6 +2614,7 @@ function App() {
           </ol>
         )}
       </section>
+      </>
       )}
       </main>
     </div>

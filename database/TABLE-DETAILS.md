@@ -124,6 +124,25 @@ Global settings. Used for admin email and opening balance.
 
 ---
 
+## 7. slideshow (homepage carousel)
+
+Images and details shown as a slideshow on the homepage. Create a **Storage** bucket named `slideshow` (Public) in Supabase; the API uploads images there and stores the URL here.
+
+| Column        | Type        | Nullable | Default | Description |
+|---------------|-------------|----------|---------|-------------|
+| **id**        | TEXT        | NO       | —       | Primary key. |
+| **image_url** | TEXT        | NO       | —       | Full URL of the image (e.g. from Supabase Storage). |
+| **title**     | TEXT        | NO       | `''`    | Slide title. |
+| **description** | TEXT      | NO       | `''`    | Details/caption. |
+| **display_date** | TEXT     | NO       | `''`    | Date to show (e.g. "15 March 2026"). |
+| **sort_order** | INTEGER    | NO       | `0`     | Order in carousel (lower first). |
+| **created_at** | TIMESTAMPTZ | NO     | NOW()   | Row created time. |
+
+**Constraints:** None.  
+**Indexes:** `sort_order ASC`, `created_at DESC`.
+
+---
+
 ## Summary
 
 | Table         | Purpose |
@@ -134,5 +153,6 @@ Global settings. Used for admin email and opening balance.
 | **spendings** | Spending records (description, amount, branch). |
 | **audit_log** | Action log: message + user_email + timestamp. |
 | **app_settings** | Config: admin_email, opening_balance. |
+| **slideshow** | Homepage slideshow: image_url, title, description, display_date. |
 
 For setup and env vars, see `README.md` and `../VERCEL-SUPABASE-SETUP.md`.

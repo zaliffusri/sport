@@ -83,3 +83,18 @@ ON CONFLICT (key) DO NOTHING;
 -- Seed default admin password hash (bcrypt for 'P@ssw0rd' - run after first deploy or set via API)
 -- You will set this via the API or Supabase dashboard after first run; placeholder comment:
 -- INSERT INTO passwords (email, password_hash) VALUES ('admin@cybersolution.com.my', '$2a$10$...') ON CONFLICT (email) DO NOTHING;
+
+-- ========== SLIDESHOW (homepage carousel: image + details + date) ==========
+-- Create a Storage bucket named "slideshow" in Supabase Dashboard (Storage → New bucket) and set it to Public.
+CREATE TABLE IF NOT EXISTS slideshow (
+  id TEXT PRIMARY KEY,
+  image_url TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  display_date TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_slideshow_sort ON slideshow(sort_order ASC, created_at DESC);
+

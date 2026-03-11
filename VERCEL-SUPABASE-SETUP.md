@@ -18,9 +18,11 @@ Follow these steps after you’ve created a Supabase project (e.g. via Vercel’
 
 5. Click **Run** (or press Ctrl+Enter).
 
-6. You should see “Success. No rows returned.” The tables `colleagues`, `passwords`, `games`, `spendings`, `audit_log`, and `app_settings` are now created, and `app_settings` is seeded with `admin_email` and `opening_balance`.
+6. You should see “Success. No rows returned.” The tables `colleagues`, `passwords`, `games`, `spendings`, `audit_log`, `app_settings`, and `slideshow` are now created, and `app_settings` is seeded with `admin_email` and `opening_balance`.
 
-7. (Optional) In Supabase go to **Table Editor** and confirm the tables exist and `app_settings` has 2 rows.
+7. **Slideshow images:** In Supabase go to **Storage** → **New bucket** → name it `slideshow` → set it to **Public** (so the homepage can show images). Create the bucket; the app will upload slide images here.
+
+8. (Optional) In Supabase go to **Table Editor** and confirm the tables exist and `app_settings` has 2 rows.
 
 ---
 

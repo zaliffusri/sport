@@ -89,6 +89,16 @@ export const api = {
   async setPassword(email, password) {
     return request('passwords', { method: 'POST', body: { action: 'setOne', payload: { email, password } } })
   },
+
+  async getSlideshow() {
+    return request('slideshow')
+  },
+  async addSlide(payload) {
+    return request('slideshow', { method: 'POST', body: { action: 'add', payload } })
+  },
+  async deleteSlide(id) {
+    return request('slideshow', { method: 'POST', body: { action: 'delete', payload: { id } } })
+  },
 }
 
 export default api
