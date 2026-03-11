@@ -52,7 +52,8 @@ Output is in the `dist` folder.
    - Vercel will use the repo’s `vercel.json` (Vite, `npm run build`, output `dist`).  
    - Click **Deploy**. The app will be live at `https://your-project.vercel.app`.
 
-Full step-by-step (custom domain, env vars): see **[DEPLOY.md](./DEPLOY.md)**.
+Full step-by-step (custom domain, env vars): see **[DEPLOY.md](./DEPLOY.md)**.  
+Staging vs production (branches, env vars, banner): see **[STAGING.md](./STAGING.md)**.
 
 ---
 

@@ -10,6 +10,8 @@
     "preview": "node ./node_modules/vite/bin/vite.js preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "bcryptjs": "^2.4.3",
     "lucide-react": "^0.577.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",

@@ -7,6 +7,30 @@
   width: 100%;
 }
 
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  font-size: 1rem;
+  color: var(--color-muted, #666);
+}
+
+/* Environment banner (staging) */
+.env-banner {
+  padding: 0.4rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
+  width: 100%;
+}
+
+.env-banner--staging {
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.25), rgba(245, 158, 11, 0.2));
+  color: var(--color-points);
+  border-bottom: 1px solid rgba(251, 191, 36, 0.4);
+}
+
 /* ========== Login page ========== */
 .app.login-page {
   display: flex;

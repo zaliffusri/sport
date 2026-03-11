@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import api from './apiClient.js'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   Trophy,
@@ -139,6 +140,9 @@ function App() {
   })
   const isLoggedIn = !!auth
   const isAdmin = auth?.isAdmin ?? false
+  const useApi = api.useApi()
+  const [dataLoading, setDataLoading] = useState(useApi)
+  const initialLoadDone = useRef(false)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -181,6 +185,21 @@ function App() {
     setLoginError('')
     const email = loginEmail.trim().toLowerCase()
     const password = loginPassword
+    if (useApi) {
+      api
+        .login(email, password)
+        .then((data) => {
+          const authPayload = { userEmail: data.userEmail, isAdmin: !!data.isAdmin }
+          setAuth(authPayload)
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authPayload))
+          addAuditLog(data.isAdmin ? 'Admin logged in' : 'Member logged in', data.userEmail)
+          setLoginEmail('')
+          setLoginPassword('')
+          window.location.hash = 'leaderboard'
+        })
+        .catch((err) => setLoginError(err?.message || 'Invalid email or password.'))
+      return
+    }
     if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       setAuth({ userEmail: ADMIN_EMAIL, isAdmin: true })
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ userEmail: ADMIN_EMAIL, isAdmin: true }))
@@ -221,6 +240,7 @@ function App() {
   }
 
   const [colleagues, setColleagues] = useState(() => {
+    if (useApi) return []
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
@@ -282,6 +302,7 @@ function App() {
   const [editingPaymentId, setEditingPaymentId] = useState(null)
   const [editingPaymentAmount, setEditingPaymentAmount] = useState('')
   const [spendings, setSpendings] = useState(() => {
+    if (useApi) return []
     try {
       const raw = localStorage.getItem(SPENDINGS_STORAGE_KEY)
       return raw ? JSON.parse(raw) : []
@@ -293,6 +314,7 @@ function App() {
   const [newSpendingAmount, setNewSpendingAmount] = useState('')
   const [newSpendingBranch, setNewSpendingBranch] = useState('')
   const [openingBalance, setOpeningBalance] = useState(() => {
+    if (useApi) return 0
     try {
       const raw = localStorage.getItem(OPENING_BALANCE_STORAGE_KEY)
       return raw !== null ? Number(raw) || 0 : 0
@@ -303,6 +325,7 @@ function App() {
   const [editingOpeningBalance, setEditingOpeningBalance] = useState(false)
   const [openingBalanceInput, setOpeningBalanceInput] = useState('')
   const [games, setGames] = useState(() => {
+    if (useApi) return []
     try {
       const raw = localStorage.getItem(GAMES_STORAGE_KEY)
       const list = raw ? JSON.parse(raw) : []
@@ -335,7 +358,38 @@ function App() {
   const [gameGuessPointsCorrect, setGameGuessPointsCorrect] = useState(1)
   const [showingGuessFormForGameId, setShowingGuessFormForGameId] = useState(null)
   const [guessAnswerInput, setGuessAnswerInput] = useState('')
-  const [auditLog, setAuditLog] = useState(() => getAuditLog())
+  const [auditLog, setAuditLog] = useState(() => (useApi ? [] : getAuditLog()))
+
+  useEffect(() => {
+    if (!useApi) return
+    let cancelled = false
+    Promise.all([
+      api.getColleagues(),
+      api.getGames(),
+      api.getSpendings(),
+      api.getAuditLog(),
+      api.getSettings(),
+    ])
+      .then(([colleaguesList, gamesList, spendingsList, auditList, settings]) => {
+        if (cancelled) return
+        setColleagues(Array.isArray(colleaguesList) ? colleaguesList : [])
+        setGames(Array.isArray(gamesList) ? gamesList : [])
+        setSpendings(Array.isArray(spendingsList) ? spendingsList : [])
+        setAuditLog(Array.isArray(auditList) ? auditList.slice(0, MAX_AUDIT_ENTRIES) : [])
+        const ob = settings?.opening_balance ?? settings?.openingBalance
+        setOpeningBalance(ob !== undefined && ob !== null ? Number(ob) || 0 : 0)
+        setDataLoading(false)
+        setTimeout(() => { initialLoadDone.current = true }, 100)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error('Initial API load failed', err)
+          setDataLoading(false)
+          initialLoadDone.current = true
+        }
+      })
+    return () => { cancelled = true }
+  }, [useApi])
 
   const addAuditLog = (message, userEmail) => {
     const who = userEmail || auth?.userEmail || 'System'
@@ -345,20 +399,29 @@ function App() {
       message,
       userEmail: who,
     }
+    if (useApi) api.addAuditLogEntry(entry).catch(console.error)
     setAuditLog((prev) => {
       const next = [entry, ...prev].slice(0, MAX_AUDIT_ENTRIES)
-      localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(next))
+      if (!useApi) localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(next))
       return next
     })
   }
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(colleagues))
-  }, [colleagues])
+    if (useApi && initialLoadDone.current) {
+      api.setColleagues(colleagues).catch(console.error)
+    } else if (!useApi) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(colleagues))
+    }
+  }, [colleagues, useApi])
 
   useEffect(() => {
-    localStorage.setItem(GAMES_STORAGE_KEY, JSON.stringify(games))
-  }, [games])
+    if (useApi && initialLoadDone.current) {
+      api.setGames(games).catch(console.error)
+    } else if (!useApi) {
+      localStorage.setItem(GAMES_STORAGE_KEY, JSON.stringify(games))
+    }
+  }, [games, useApi])
 
   // Handle QR scan: ?scan=gameId — behaviour depends on game type
   useEffect(() => {
@@ -499,12 +562,20 @@ function App() {
   }, [auth?.userEmail, games, colleagues])
 
   useEffect(() => {
-    localStorage.setItem(SPENDINGS_STORAGE_KEY, JSON.stringify(spendings))
-  }, [spendings])
+    if (useApi && initialLoadDone.current) {
+      api.setSpendings(spendings).catch(console.error)
+    } else if (!useApi) {
+      localStorage.setItem(SPENDINGS_STORAGE_KEY, JSON.stringify(spendings))
+    }
+  }, [spendings, useApi])
 
   useEffect(() => {
-    localStorage.setItem(OPENING_BALANCE_STORAGE_KEY, String(openingBalance))
-  }, [openingBalance])
+    if (useApi && initialLoadDone.current) {
+      api.setSetting('opening_balance', openingBalance).catch(console.error)
+    } else if (!useApi) {
+      localStorage.setItem(OPENING_BALANCE_STORAGE_KEY, String(openingBalance))
+    }
+  }, [openingBalance, useApi])
 
   const activeColleagues = colleagues.filter((c) => c.active !== false)
   const sortedColleagues = [...activeColleagues].sort((a, b) => b.points - a.points)
@@ -523,9 +594,13 @@ function App() {
       setTimeout(() => setMessage(null), 3000)
       return
     }
-    const passwords = getStoredPasswords()
-    passwords[email] = DEFAULT_PASSWORD
-    localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+    if (useApi) {
+      api.setPassword(email, DEFAULT_PASSWORD).catch(console.error)
+    } else {
+      const passwords = getStoredPasswords()
+      passwords[email] = DEFAULT_PASSWORD
+      localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+    }
     setColleagues((prev) => [
       ...prev,
       {
@@ -648,12 +723,16 @@ function App() {
       return
     }
     const oldEmail = (person.email || '').toLowerCase()
-    const passwords = getStoredPasswords()
     if (oldEmail !== email) {
-      const pwd = passwords[oldEmail] ?? DEFAULT_PASSWORD
-      passwords[email] = pwd
-      delete passwords[oldEmail]
-      localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+      if (useApi) {
+        api.setPassword(email, DEFAULT_PASSWORD).catch(console.error)
+      } else {
+        const passwords = getStoredPasswords()
+        const pwd = passwords[oldEmail] ?? DEFAULT_PASSWORD
+        passwords[email] = pwd
+        delete passwords[oldEmail]
+        localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+      }
     }
     setColleagues((prev) =>
       prev.map((c) =>
@@ -891,18 +970,33 @@ function App() {
   const handleChangePassword = (e) => {
     e.preventDefault()
     setChangePwMessage(null)
-    const passwords = getStoredPasswords()
-    const current = passwords[auth.userEmail] ?? DEFAULT_PASSWORD
-    if (changePwCurrent !== current) {
-      setChangePwMessage('Current password is incorrect.')
-      return
-    }
     if (changePwNew.length < 6) {
       setChangePwMessage('New password must be at least 6 characters.')
       return
     }
     if (changePwNew !== changePwConfirm) {
       setChangePwMessage('New passwords do not match.')
+      return
+    }
+    if (useApi) {
+      api
+        .login(auth.userEmail, changePwCurrent)
+        .then(() => api.setPassword(auth.userEmail, changePwNew))
+        .then(() => {
+          setChangePwCurrent('')
+          setChangePwNew('')
+          setChangePwConfirm('')
+          addAuditLog('Changed password', auth.userEmail)
+          setChangePwMessage('Password updated. Use your new password next time you log in.')
+          setTimeout(() => setChangePwMessage(null), 4000)
+        })
+        .catch(() => setChangePwMessage('Current password is incorrect.'))
+      return
+    }
+    const passwords = getStoredPasswords()
+    const current = passwords[auth.userEmail] ?? DEFAULT_PASSWORD
+    if (changePwCurrent !== current) {
+      setChangePwMessage('Current password is incorrect.')
       return
     }
     passwords[auth.userEmail] = changePwNew
@@ -928,6 +1022,60 @@ function App() {
       setProfileEmailMessage('New email is the same as current email.')
       return
     }
+    const doUpdate = (currentPassword) => {
+      if (useApi) {
+        api
+          .setPassword(trimmed, currentPassword)
+          .catch(console.error)
+      } else {
+        const passwords = getStoredPasswords()
+        passwords[trimmed] = currentPassword
+        delete passwords[oldEmail]
+        localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+      }
+    }
+    if (useApi) {
+      api
+        .login(oldEmail, profileEmailPassword)
+        .then(() => {
+          doUpdate(profileEmailPassword)
+          if (isAdmin) {
+            setAuth((a) => (a ? { ...a, userEmail: trimmed } : null))
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ userEmail: trimmed, isAdmin: true }))
+            addAuditLog(`Admin changed email to ${trimmed}`, oldEmail)
+          } else {
+            const currentColleague = colleagues.find((c) => (c.email || '').toLowerCase() === oldEmail)
+            const taken = colleagues.some((c) => c.id !== currentColleague?.id && (c.email || '').toLowerCase() === trimmed)
+            if (taken) {
+              setProfileEmailMessage('This email is already in use.')
+              return
+            }
+            setColleagues((prev) =>
+              prev.map((c) => ((c.email || '').toLowerCase() === oldEmail ? { ...c, email: trimmed } : c))
+            )
+            setGames((prev) =>
+              prev.map((g) => ({
+                ...g,
+                participants: (g.participants || []).map((em) => (em.toLowerCase() === oldEmail ? trimmed : em)),
+                scannedBy: (g.scannedBy || []).map((em) => (em.toLowerCase() === oldEmail ? trimmed : em)),
+                guessAnswers: g.guessAnswers && typeof g.guessAnswers === 'object'
+                  ? Object.fromEntries(Object.entries(g.guessAnswers).map(([em, ans]) => [em.toLowerCase() === oldEmail ? trimmed : em, ans]))
+                  : {},
+              }))
+            )
+            setAuth((a) => (a ? { ...a, userEmail: trimmed } : null))
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ userEmail: trimmed, isAdmin: false }))
+            addAuditLog(`Changed email to ${trimmed}`, oldEmail)
+          }
+          setProfileNewEmail('')
+          setProfileEmailPassword('')
+          setProfileEmailMessage('Email updated. You are now signed in with your new email.')
+          setMessage('Email updated.')
+          setTimeout(() => { setMessage(null); setProfileEmailMessage(null) }, 4000)
+        })
+        .catch(() => setProfileEmailMessage('Current password is incorrect.'))
+      return
+    }
     const passwords = getStoredPasswords()
     const currentPassword = passwords[oldEmail] ?? DEFAULT_PASSWORD
     if (profileEmailPassword !== currentPassword) {
@@ -935,9 +1083,7 @@ function App() {
       return
     }
     if (isAdmin) {
-      passwords[trimmed] = currentPassword
-      delete passwords[oldEmail]
-      localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+      doUpdate(currentPassword)
       setAuth((a) => (a ? { ...a, userEmail: trimmed } : null))
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ userEmail: trimmed, isAdmin: true }))
       addAuditLog(`Admin changed email to ${trimmed}`, oldEmail)
@@ -959,9 +1105,7 @@ function App() {
       setProfileEmailMessage('Could not find your account. Please try again.')
       return
     }
-    passwords[trimmed] = currentPassword
-    delete passwords[oldEmail]
-    localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(passwords))
+    doUpdate(currentPassword)
     setColleagues((prev) =>
       prev.map((c) => ((c.email || '').toLowerCase() === oldEmail ? { ...c, email: trimmed } : c))
     )
@@ -985,8 +1129,15 @@ function App() {
     setTimeout(() => { setMessage(null); setProfileEmailMessage(null) }, 4000)
   }
 
+  const isStaging = import.meta.env.VITE_APP_ENV === 'preview'
+
   return (
     <div className="app">
+      {isStaging && (
+        <div className="env-banner env-banner--staging" role="status">
+          Staging environment — for testing only
+        </div>
+      )}
       <div className="header-wrapper">
         <header className="header">
           <div className="header-inner">
