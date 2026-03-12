@@ -1862,7 +1862,7 @@ function App() {
       {currentPage === 'feedback' && isLoggedIn && (
       <section className="feedback-section section-card">
         <h2><span className="icon-wrap"><MessageCircle size={22} /></span> Suggestions &amp; feedback</h2>
-        <p className="section-desc">Suggest an activity or sport you&apos;d like to see. Suggestions are shown anonymously to everyone; admins can see who submitted each one.</p>
+        <p className="section-desc">Suggest an activity or sport you&apos;d like to see.</p>
         <form className="form-card feedback-form" onSubmit={handleSubmitFeedback}>
           <label htmlFor="feedback-message">Your suggestion</label>
           <textarea
