@@ -87,10 +87,12 @@ ON CONFLICT (key) DO NOTHING;
 -- You will set this via the API or Supabase dashboard after first run; placeholder comment:
 -- INSERT INTO passwords (email, password_hash) VALUES ('admin@cybersolution.com.my', '$2a$10$...') ON CONFLICT (email) DO NOTHING;
 
--- ========== SLIDESHOW (homepage carousel: image + details + date) ==========
+-- ========== MOMENTS (posts: each post = one segment, 1–3 images per post) ==========
 -- Create a Storage bucket named "slideshow" in Supabase Dashboard (Storage → New bucket) and set it to Public.
 CREATE TABLE IF NOT EXISTS slideshow (
   id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  image_order INTEGER NOT NULL DEFAULT 0,
   image_url TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
@@ -100,4 +102,5 @@ CREATE TABLE IF NOT EXISTS slideshow (
 );
 
 CREATE INDEX IF NOT EXISTS idx_slideshow_sort ON slideshow(sort_order ASC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_slideshow_post ON slideshow(post_id, image_order);
 

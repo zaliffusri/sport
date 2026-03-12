@@ -43,6 +43,14 @@ const AUDIT_LOG_STORAGE_KEY = 'company-leaderboard-audit-log'
 const SLIDESHOW_STORAGE_KEY = 'company-leaderboard-slideshow'
 const MAX_AUDIT_ENTRIES = 500
 
+function normalizeToPosts(list) {
+  if (!Array.isArray(list)) return []
+  return list.map((item) => {
+    if (item.images && Array.isArray(item.images)) return { id: item.id, title: item.title || '', description: item.description || '', displayDate: item.displayDate || '', images: item.images.filter(Boolean) }
+    return { id: item.id, title: item.title || '', description: item.description || '', displayDate: item.displayDate || '', images: [item.imageUrl].filter(Boolean) }
+  }).filter((p) => p.images.length > 0)
+}
+
 const ADMIN_EMAIL = 'admin@cybersolution.com.my'
 const ADMIN_PASSWORD = 'P@ssw0rd'
 const DEFAULT_PASSWORD = 'P@ssw0rd'
@@ -109,13 +117,14 @@ const PAGES = {
   culling: { label: 'Culling game', adminOnly: false },
   profile: { label: 'Profile', adminOnly: false },
   settings: { label: 'Audit log', adminOnly: true },
-  slideshow: { label: 'Slideshow', adminOnly: true },
+  slideshow: { label: 'Moment', adminOnly: false },
 }
 
 function getValidPage(hash, isAdmin, isLoggedIn, canAccessCollection) {
   const raw = (hash || 'leaderboard').replace(/^#/, '').replace(/^\/+/, '').toLowerCase()
   if (!isLoggedIn) {
     if (raw === 'login' || raw === 'signin') return 'login'
+    if (raw === 'slideshow') return 'slideshow'
     return 'leaderboard'
   }
   let page = raw
@@ -172,12 +181,12 @@ function App() {
     culling: 'Culling game',
     profile: 'Profile',
     settings: 'Audit log',
-    slideshow: 'Slideshow',
+    slideshow: 'Moment',
   }
   useEffect(() => {
     const base = 'MSC & CTSB SPORTS'
     if (!isLoggedIn) {
-      document.title = currentPage === 'login' ? `Log in · ${base}` : base
+      document.title = currentPage === 'login' ? `Log in · ${base}` : currentPage === 'slideshow' ? `Moment · ${base}` : base
       return
     }
     const label = pageTitles[currentPage] || 'Leaderboard'
@@ -372,34 +381,49 @@ function App() {
   const [guessAnswerInput, setGuessAnswerInput] = useState('')
   const [auditLog, setAuditLog] = useState(() => (useApi ? [] : getAuditLog()))
 
-  const [slideTitle, setSlideTitle] = useState('')
-  const [slideDescription, setSlideDescription] = useState('')
-  const [slideDate, setSlideDate] = useState('')
-  const [slideUploadError, setSlideUploadError] = useState('')
-  const slideFileRef = useRef(null)
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
+  const [postTitle, setPostTitle] = useState('')
+  const [postDescription, setPostDescription] = useState('')
+  const [postDate, setPostDate] = useState('')
+  const [postUploadError, setPostUploadError] = useState('')
+  const postFileRefs = [useRef(null), useRef(null), useRef(null)]
+  const momentPostScrollRefs = useRef({})
 
-  const [slides, setSlides] = useState(() => {
+  const [posts, setPosts] = useState(() => {
     if (useApi) return []
     try {
       const raw = localStorage.getItem(SLIDESHOW_STORAGE_KEY)
-      return raw ? JSON.parse(raw) : []
+      const list = raw ? JSON.parse(raw) : []
+      return normalizeToPosts(list)
     } catch (_) {
       return []
     }
   })
 
-  useEffect(() => {
-    if (currentPage !== 'leaderboard' || slides.length <= 1) return
-    const t = setInterval(() => {
-      setCurrentSlideIndex((i) => (i + 1) % slides.length)
-    }, 5000)
-    return () => clearInterval(t)
-  }, [currentPage, slides.length])
+  const [postImageIndex, setPostImageIndex] = useState({})
+  const postImageIndexRef = useRef({})
+  const setPostImageIndexFor = (postId, index) => setPostImageIndex((prev) => ({ ...prev, [postId]: index }))
 
   useEffect(() => {
-    if (slides.length > 0 && currentSlideIndex >= slides.length) setCurrentSlideIndex(0)
-  }, [slides.length, currentSlideIndex])
+    postImageIndexRef.current = postImageIndex
+  }, [postImageIndex])
+
+  const MOMENT_AUTO_SLIDE_MS = 4500
+  useEffect(() => {
+    if (currentPage !== 'slideshow' || posts.length === 0) return
+    const timers = []
+    posts.forEach((post) => {
+      if (post.images.length <= 1) return
+      const t = setInterval(() => {
+        const current = postImageIndexRef.current[post.id] ?? 0
+        const next = (current + 1) % post.images.length
+        setPostImageIndexFor(post.id, next)
+        const el = momentPostScrollRefs.current[post.id]
+        if (el) el.scrollTo({ left: next * el.clientWidth, behavior: 'smooth' })
+      }, MOMENT_AUTO_SLIDE_MS)
+      timers.push(t)
+    })
+    return () => timers.forEach((t) => clearInterval(t))
+  }, [currentPage, posts])
 
   useEffect(() => {
     if (!useApi) return
@@ -436,9 +460,9 @@ function App() {
           finish()
         }
       })
-    api.getSlideshow().then((slidesList) => {
-      if (!cancelled) setSlides(Array.isArray(slidesList) ? slidesList : [])
-    }).catch(() => { if (!cancelled) setSlides([]) })
+    api.getSlideshow().then((list) => {
+      if (!cancelled) setPosts(normalizeToPosts(Array.isArray(list) ? list : []))
+    }).catch(() => { if (!cancelled) setPosts([]) })
     return () => { cancelled = true; clearTimeout(fallback) }
   }, [useApi])
 
@@ -458,67 +482,83 @@ function App() {
     })
   }
 
-  const handleAddSlide = (e) => {
+  const handleAddPost = (e) => {
     e.preventDefault()
-    setSlideUploadError('')
-    const file = slideFileRef.current?.files?.[0]
-    if (!file || !file.type.startsWith('image/')) {
-      setSlideUploadError('Please select an image file (JPEG, PNG, or GIF).')
+    setPostUploadError('')
+    const files = postFileRefs.map((ref) => ref.current?.files?.[0]).filter(Boolean)
+    if (files.length === 0) {
+      setPostUploadError('Add at least one image (max 3 per post).')
       return
     }
-    if (file.size > 4 * 1024 * 1024) {
-      setSlideUploadError('Image must be under 4MB.')
+    if (files.length > 3) {
+      setPostUploadError('Maximum 3 images per post.')
       return
     }
-    const reader = new FileReader()
-    reader.onload = () => {
-      const imageBase64 = reader.result
-      if (useApi) {
-        api.addSlide({ imageBase64, title: slideTitle.trim(), description: slideDescription.trim(), displayDate: slideDate.trim() })
-          .then(() => {
-            return api.getSlideshow()
-          })
-          .then((list) => {
-            setSlides(Array.isArray(list) ? list : [])
-            setSlideTitle('')
-            setSlideDescription('')
-            setSlideDate('')
-            if (slideFileRef.current) slideFileRef.current.value = ''
-            setMessage('Slide added. It will appear on the homepage.')
-            setTimeout(() => setMessage(null), 3000)
-          })
-          .catch((err) => setSlideUploadError(err?.message || 'Upload failed'))
-      } else {
-        const id = `slide-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-        const newSlide = { id, imageUrl: imageBase64, title: slideTitle.trim(), description: slideDescription.trim(), displayDate: slideDate.trim(), sortOrder: 0 }
-        setSlides((prev) => {
-          const next = [...prev, newSlide]
-          localStorage.setItem(SLIDESHOW_STORAGE_KEY, JSON.stringify(next))
-          return next
-        })
-        setSlideTitle('')
-        setSlideDescription('')
-        setSlideDate('')
-        if (slideFileRef.current) slideFileRef.current.value = ''
-        setMessage('Slide added.')
-        setTimeout(() => setMessage(null), 3000)
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        setPostUploadError('All files must be images (JPEG, PNG, or GIF).')
+        return
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        setPostUploadError('Each image must be under 4MB.')
+        return
       }
     }
-    reader.readAsDataURL(file)
+    const readNext = (index, acc) => {
+      if (index >= files.length) {
+        const payload = { title: postTitle.trim(), description: postDescription.trim(), displayDate: postDate.trim(), images: acc }
+        if (useApi) {
+          api.addPost(payload)
+            .then(() => api.getSlideshow())
+            .then((list) => {
+              setPosts(normalizeToPosts(Array.isArray(list) ? list : []))
+              setPostTitle('')
+              setPostDescription('')
+              setPostDate('')
+              postFileRefs.forEach((ref) => { if (ref.current) ref.current.value = '' })
+              setMessage('Post added. It will appear on the Moment page.')
+              setTimeout(() => setMessage(null), 3000)
+            })
+            .catch((err) => setPostUploadError(err?.message || 'Upload failed'))
+        } else {
+          const id = `post-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+          const newPost = { id, title: postTitle.trim(), description: postDescription.trim(), displayDate: postDate.trim(), images: acc }
+          setPosts((prev) => {
+            const next = [...prev, newPost]
+            localStorage.setItem(SLIDESHOW_STORAGE_KEY, JSON.stringify(next))
+            return next
+          })
+          setPostTitle('')
+          setPostDescription('')
+          setPostDate('')
+          postFileRefs.forEach((ref) => { if (ref.current) ref.current.value = '' })
+          setMessage('Post added.')
+          setTimeout(() => setMessage(null), 3000)
+        }
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        acc.push(reader.result)
+        readNext(index + 1, acc)
+      }
+      reader.readAsDataURL(files[index])
+    }
+    readNext(0, [])
   }
 
-  const handleDeleteSlide = (id) => {
-    if (!window.confirm('Remove this slide from the homepage?')) return
+  const handleDeletePost = (postId) => {
+    if (!window.confirm('Remove this post and all its images from the Moment page?')) return
     if (useApi) {
-      api.deleteSlide(id).then(() => api.getSlideshow()).then((list) => setSlides(Array.isArray(list) ? list : []))
+      api.deletePost(postId).then(() => api.getSlideshow()).then((list) => setPosts(normalizeToPosts(Array.isArray(list) ? list : [])))
     } else {
-      setSlides((prev) => {
-        const next = prev.filter((s) => s.id !== id)
+      setPosts((prev) => {
+        const next = prev.filter((p) => p.id !== postId)
         localStorage.setItem(SLIDESHOW_STORAGE_KEY, JSON.stringify(next))
         return next
       })
     }
-    setMessage('Slide removed.')
+    setMessage('Post removed.')
     setTimeout(() => setMessage(null), 3000)
   }
 
@@ -1296,9 +1336,9 @@ function App() {
                   <a href="#culling" className={currentPage === 'culling' ? 'active' : ''} onClick={() => { setCurrentPage('culling'); setNavOpen(false); }}><PocketKnife size={18} /> Culling game</a>
                   <a href="#profile" className={currentPage === 'profile' ? 'active' : ''} onClick={() => setNavOpen(false)}><UserCircle size={18} /> Profile</a>
                   {isAdmin && <a href="#settings" className={currentPage === 'settings' ? 'active' : ''} onClick={() => setNavOpen(false)}><ClipboardList size={18} /> Audit log</a>}
-                  {isAdmin && <a href="#slideshow" className={currentPage === 'slideshow' ? 'active' : ''} onClick={() => setNavOpen(false)}><ImagePlus size={18} /> Slideshow</a>}
                 </>
               )}
+              <a href="#slideshow" className={currentPage === 'slideshow' ? 'active' : ''} onClick={() => setNavOpen(false)}><ImagePlus size={18} /> Moment</a>
             </div>
           </div>
         </nav>
@@ -1755,66 +1795,137 @@ function App() {
       </section>
       )}
 
-      {currentPage === 'slideshow' && isAdmin && (
+      {currentPage === 'slideshow' && (
+      <>
+      {posts.length > 0 ? (
+        <section className="moment-feed-section" aria-label="Moment">
+          <div className="moment-feed">
+            {posts.map((post) => {
+              const currentIdx = postImageIndex[post.id] ?? 0
+              const hasMultiple = post.images.length > 1
+              return (
+                <article key={post.id} className="moment-post" data-post-id={post.id}>
+                  <div className="moment-post-images-wrap">
+                    <div
+                      className="moment-post-images"
+                      role="region"
+                      aria-label={hasMultiple ? `Post images ${currentIdx + 1} of ${post.images.length}` : 'Post image'}
+                      ref={(el) => { if (el) momentPostScrollRefs.current[post.id] = el }}
+                      onScroll={(e) => {
+                        if (!hasMultiple) return
+                        const el = e.currentTarget
+                        const idx = Math.round(el.scrollLeft / el.clientWidth)
+                        setPostImageIndexFor(post.id, Math.min(idx, post.images.length - 1))
+                      }}
+                    >
+                      {post.images.map((url, i) => (
+                        <div key={i} className="moment-post-img-wrap">
+                          <img src={url} alt={post.title || (i === 0 ? 'Moment' : '')} className="moment-post-img" loading="lazy" />
+                        </div>
+                      ))}
+                    </div>
+                    {hasMultiple && (
+                      <div className="moment-post-dots moment-post-dots--overlay">
+                        {post.images.map((_, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            className={`moment-post-dot ${i === currentIdx ? 'active' : ''}`}
+                            aria-label={`Image ${i + 1}`}
+                            onClick={() => {
+                              setPostImageIndexFor(post.id, i)
+                              const el = momentPostScrollRefs.current[post.id]
+                              if (el) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' })
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="moment-post-caption">
+                    {post.title && <span className="moment-post-title">{post.title}</span>}
+                    {post.description && <span className="moment-post-desc">{post.description}</span>}
+                    {post.displayDate && <span className="moment-post-date">{formatGameDate(post.displayDate) || post.displayDate}</span>}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      ) : (
+        <section className="moment-feed-section moment-feed-empty">
+          <p className="section-desc muted">No moments yet.{isAdmin ? ' Add a post (1–3 images) using the form below.' : ''}</p>
+        </section>
+      )}
+      {isAdmin && (
       <section className="slideshow-admin section-card">
-        <h2><span className="icon-wrap"><ImagePlus size={22} /></span> Homepage slideshow</h2>
-        <p className="section-desc">Upload images with title, description, and date. They will appear as a slideshow on the homepage (leaderboard).</p>
-        <form className="form-card add-slide-form" onSubmit={handleAddSlide}>
-          <h3>Add slide</h3>
+        <h2><span className="icon-wrap"><ImagePlus size={22} /></span> Manage moments</h2>
+        <p className="section-desc">Each post is one segment. Add 1–3 images per post with title, description, and date. They will appear on the Moment page.</p>
+        <form className="form-card add-slide-form" onSubmit={handleAddPost}>
+          <h3>Add post (max 3 images)</h3>
           <div className="field">
-            <label htmlFor="slide-image">Image</label>
-            <input
-              id="slide-image"
-              type="file"
-              ref={slideFileRef}
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              required
-            />
+            <label>Images (1–3)</label>
+            <div className="post-images-inputs">
+              {[0, 1, 2].map((i) => (
+                <input
+                  key={i}
+                  type="file"
+                  ref={postFileRefs[i]}
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  aria-label={`Image ${i + 1}`}
+                />
+              ))}
+            </div>
+            <span className="field-hint">At least one image required.</span>
           </div>
           <div className="field">
-            <label htmlFor="slide-title">Title</label>
+            <label htmlFor="post-title">Title</label>
             <input
-              id="slide-title"
+              id="post-title"
               type="text"
               placeholder="e.g. Sports Day 2026"
-              value={slideTitle}
-              onChange={(e) => setSlideTitle(e.target.value)}
+              value={postTitle}
+              onChange={(e) => setPostTitle(e.target.value)}
             />
           </div>
           <div className="field">
-            <label htmlFor="slide-desc">Description / details</label>
+            <label htmlFor="post-desc">Description / details</label>
             <textarea
-              id="slide-desc"
+              id="post-desc"
               placeholder="Optional description"
-              value={slideDescription}
-              onChange={(e) => setSlideDescription(e.target.value)}
+              value={postDescription}
+              onChange={(e) => setPostDescription(e.target.value)}
               rows={2}
             />
           </div>
           <div className="field">
-            <label htmlFor="slide-date">Date</label>
+            <label htmlFor="post-date">Date</label>
             <input
-              id="slide-date"
+              id="post-date"
               type="date"
-              value={slideDate}
-              onChange={(e) => setSlideDate(e.target.value)}
+              value={postDate}
+              onChange={(e) => setPostDate(e.target.value)}
             />
           </div>
-          {slideUploadError && <p className="login-error">{slideUploadError}</p>}
-          <button type="submit"><ImagePlus size={18} /> Add slide</button>
+          {postUploadError && <p className="login-error">{postUploadError}</p>}
+          <button type="submit"><ImagePlus size={18} /> Add post</button>
         </form>
-        {slides.length > 0 && (
+        {posts.length > 0 && (
           <div className="slideshow-list-admin">
-            <h3>Current slides ({slides.length})</h3>
+            <h3>Current posts ({posts.length})</h3>
             <div className="slideshow-list-cards">
-              {slides.map((slide) => (
-                <div key={slide.id} className="slideshow-list-card">
-                  <img src={slide.imageUrl} alt={slide.title} className="slideshow-list-thumb" />
-                  <div className="slideshow-list-info">
-                    {slide.title && <strong>{slide.title}</strong>}
-                    {slide.displayDate && <span className="muted">{formatGameDate(slide.displayDate) || slide.displayDate}</span>}
+              {posts.map((post) => (
+                <div key={post.id} className="slideshow-list-card">
+                  <div className="slideshow-list-thumbs">
+                    {post.images.slice(0, 3).map((url, i) => (
+                      <img key={i} src={url} alt="" className="slideshow-list-thumb" />
+                    ))}
                   </div>
-                  <button type="button" className="btn-sm btn-danger" onClick={() => handleDeleteSlide(slide.id)} title="Remove slide">
+                  <div className="slideshow-list-info">
+                    {post.title && <strong>{post.title}</strong>}
+                    {post.displayDate && <span className="muted">{formatGameDate(post.displayDate) || post.displayDate}</span>}
+                  </div>
+                  <button type="button" className="btn-sm btn-danger" onClick={() => handleDeletePost(post.id)} title="Remove post">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -1823,6 +1934,8 @@ function App() {
           </div>
         )}
       </section>
+      )}
+      </>
       )}
 
       {currentPage === 'culling' && (
@@ -2556,40 +2669,6 @@ function App() {
       })()}
 
       {currentPage === 'leaderboard' && (
-      <>
-      {slides.length > 0 && (
-        <section className="home-slideshow" aria-label="Slideshow">
-          <div className="slideshow-track">
-            {slides.map((slide, idx) => (
-              <div
-                key={slide.id}
-                className={`slideshow-slide ${idx === currentSlideIndex ? 'active' : ''}`}
-                aria-hidden={idx !== currentSlideIndex}
-              >
-                <img src={slide.imageUrl} alt={slide.title || 'Slide'} className="slideshow-image" />
-                <div className="slideshow-caption">
-                  {slide.title && <span className="slideshow-title">{slide.title}</span>}
-                  {slide.description && <span className="slideshow-desc">{slide.description}</span>}
-                  {slide.displayDate && <span className="slideshow-date">{formatGameDate(slide.displayDate) || slide.displayDate}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-          {slides.length > 1 && (
-            <div className="slideshow-dots">
-              {slides.map((_, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  className={`slideshow-dot ${idx === currentSlideIndex ? 'active' : ''}`}
-                  aria-label={`Go to slide ${idx + 1}`}
-                  onClick={() => setCurrentSlideIndex(idx)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
       <section className="leaderboard section-card section-card--leaderboard">
         <h2><span className="icon-wrap"><Trophy size={22} /></span> Rankings</h2>
         {sortedColleagues.length === 0 ? (
@@ -2614,7 +2693,6 @@ function App() {
           </ol>
         )}
       </section>
-      </>
       )}
       </main>
     </div>

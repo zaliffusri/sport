@@ -93,11 +93,11 @@ export const api = {
   async getSlideshow() {
     return request('slideshow')
   },
-  async addSlide(payload) {
+  async addPost(payload) {
     return request('slideshow', { method: 'POST', body: { action: 'add', payload } })
   },
-  async deleteSlide(id) {
-    return request('slideshow', { method: 'POST', body: { action: 'delete', payload: { id } } })
+  async deletePost(postId) {
+    return request('slideshow', { method: 'POST', body: { action: 'delete', payload: { id: postId } } })
   },
 }
 
