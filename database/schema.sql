@@ -104,3 +104,13 @@ CREATE TABLE IF NOT EXISTS slideshow (
 CREATE INDEX IF NOT EXISTS idx_slideshow_sort ON slideshow(sort_order ASC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_slideshow_post ON slideshow(post_id, image_order);
 
+-- ========== FEEDBACK (suggestions: activity/sport ideas; anonymous to users, admin sees who) ==========
+CREATE TABLE IF NOT EXISTS feedback (
+  id TEXT PRIMARY KEY,
+  user_email TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC);
+

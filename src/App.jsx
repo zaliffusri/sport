@@ -30,6 +30,7 @@ import {
   X,
   HelpCircle,
   ImagePlus,
+  MessageCircle,
 } from 'lucide-react'
 import './App.css'
 
@@ -41,6 +42,7 @@ const OPENING_BALANCE_STORAGE_KEY = 'company-leaderboard-opening-balance'
 const GAMES_STORAGE_KEY = 'company-leaderboard-games'
 const AUDIT_LOG_STORAGE_KEY = 'company-leaderboard-audit-log'
 const SLIDESHOW_STORAGE_KEY = 'company-leaderboard-slideshow'
+const FEEDBACK_STORAGE_KEY = 'company-leaderboard-feedback'
 const MAX_AUDIT_ENTRIES = 500
 
 function normalizeToPosts(list) {
@@ -118,6 +120,7 @@ const PAGES = {
   profile: { label: 'Profile', adminOnly: false },
   settings: { label: 'Audit log', adminOnly: true },
   slideshow: { label: 'Moment', adminOnly: false },
+  feedback: { label: 'Feedback', adminOnly: false },
 }
 
 function getValidPage(hash, isAdmin, isLoggedIn, canAccessCollection) {
@@ -182,6 +185,7 @@ function App() {
     profile: 'Profile',
     settings: 'Audit log',
     slideshow: 'Moment',
+    feedback: 'Feedback',
   }
   useEffect(() => {
     const base = 'MSC & CTSB SPORTS'
@@ -388,6 +392,11 @@ function App() {
   const postFileRefs = [useRef(null), useRef(null), useRef(null)]
   const momentPostScrollRefs = useRef({})
 
+  const [feedbackList, setFeedbackList] = useState([])
+  const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [feedbackError, setFeedbackError] = useState('')
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+
   const [posts, setPosts] = useState(() => {
     if (useApi) return []
     try {
@@ -424,6 +433,60 @@ function App() {
     })
     return () => timers.forEach((t) => clearInterval(t))
   }, [currentPage, posts])
+
+  useEffect(() => {
+    if (currentPage !== 'feedback') return
+    if (useApi) {
+      setFeedbackLoading(true)
+      const adminEmail = isAdmin ? auth?.userEmail : null
+      api.getFeedback(adminEmail)
+        .then((list) => setFeedbackList(Array.isArray(list) ? list : []))
+        .catch(() => setFeedbackList([]))
+        .finally(() => setFeedbackLoading(false))
+    } else {
+      try {
+        const raw = localStorage.getItem(FEEDBACK_STORAGE_KEY)
+        setFeedbackList(raw ? JSON.parse(raw) : [])
+      } catch (_) {
+        setFeedbackList([])
+      }
+    }
+  }, [currentPage, useApi, isAdmin, auth?.userEmail])
+
+  const handleSubmitFeedback = (e) => {
+    e.preventDefault()
+    setFeedbackError('')
+    const msg = feedbackMessage.trim()
+    if (!msg) {
+      setFeedbackError('Please enter your suggestion.')
+      return
+    }
+    if (!auth?.userEmail) {
+      setFeedbackError('You must be logged in to submit feedback.')
+      return
+    }
+    if (useApi) {
+      api.submitFeedback(msg, auth.userEmail)
+        .then(() => {
+          setFeedbackMessage('')
+          setMessage('Thanks! Your suggestion was submitted.')
+          setTimeout(() => setMessage(null), 3000)
+          return api.getFeedback(isAdmin ? auth.userEmail : null)
+        })
+        .then((list) => setFeedbackList(Array.isArray(list) ? list : []))
+        .catch((err) => setFeedbackError(err?.message || 'Failed to submit'))
+    } else {
+      const item = { id: `fb-${Date.now()}`, message: msg, createdAt: new Date().toISOString(), userEmail: auth.userEmail }
+      setFeedbackList((prev) => {
+        const next = [item, ...prev]
+        localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+      setFeedbackMessage('')
+      setMessage('Thanks! Your suggestion was saved.')
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
 
   useEffect(() => {
     if (!useApi) return
@@ -1336,6 +1399,7 @@ function App() {
                   <a href="#culling" className={currentPage === 'culling' ? 'active' : ''} onClick={() => { setCurrentPage('culling'); setNavOpen(false); }}><PocketKnife size={18} /> Culling game</a>
                   <a href="#profile" className={currentPage === 'profile' ? 'active' : ''} onClick={() => setNavOpen(false)}><UserCircle size={18} /> Profile</a>
                   {isAdmin && <a href="#settings" className={currentPage === 'settings' ? 'active' : ''} onClick={() => setNavOpen(false)}><ClipboardList size={18} /> Audit log</a>}
+                  <a href="#feedback" className={currentPage === 'feedback' ? 'active' : ''} onClick={() => setNavOpen(false)}><MessageCircle size={18} /> Feedback</a>
                 </>
               )}
               <a href="#slideshow" className={currentPage === 'slideshow' ? 'active' : ''} onClick={() => setNavOpen(false)}><ImagePlus size={18} /> Moment</a>
@@ -1792,6 +1856,51 @@ function App() {
         {auditLog.length > 100 && (
           <p className="section-desc muted">Showing latest 100 of {auditLog.length} entries.</p>
         )}
+      </section>
+      )}
+
+      {currentPage === 'feedback' && isLoggedIn && (
+      <section className="feedback-section section-card">
+        <h2><span className="icon-wrap"><MessageCircle size={22} /></span> Suggestions &amp; feedback</h2>
+        <p className="section-desc">Suggest an activity or sport you&apos;d like to see. Suggestions are shown anonymously to everyone; admins can see who submitted each one.</p>
+        <form className="form-card feedback-form" onSubmit={handleSubmitFeedback}>
+          <label htmlFor="feedback-message">Your suggestion</label>
+          <textarea
+            id="feedback-message"
+            placeholder="e.g. Badminton tournament, Football friendly match, Annual sports day..."
+            value={feedbackMessage}
+            onChange={(e) => setFeedbackMessage(e.target.value)}
+            rows={3}
+            maxLength={500}
+          />
+          <span className="field-hint">{feedbackMessage.length}/500</span>
+          {feedbackError && <p className="login-error">{feedbackError}</p>}
+          <button type="submit" disabled={feedbackLoading}>Submit suggestion</button>
+        </form>
+        <div className="feedback-list-wrap">
+          <h3>All suggestions</h3>
+          {feedbackLoading && feedbackList.length === 0 ? (
+            <p className="section-desc muted">Loading...</p>
+          ) : feedbackList.length === 0 ? (
+            <p className="section-desc muted">No suggestions yet. Be the first to suggest an activity or sport!</p>
+          ) : (
+            <ul className="feedback-list">
+              {feedbackList.map((item) => (
+                <li key={item.id} className="feedback-item">
+                  <p className="feedback-item-message">{item.message}</p>
+                  <div className="feedback-item-meta">
+                    <span className="feedback-item-date">
+                      {item.createdAt ? new Date(item.createdAt).toLocaleString('en-MY', { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                    </span>
+                    {item.userEmail && isAdmin && (
+                      <span className="feedback-item-by muted">by {item.userEmail}</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
       )}
 

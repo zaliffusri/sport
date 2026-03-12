@@ -99,6 +99,15 @@ export const api = {
   async deletePost(postId) {
     return request('slideshow', { method: 'POST', body: { action: 'delete', payload: { id: postId } } })
   },
+
+  async getFeedback(adminEmail) {
+    const headers = {}
+    if (adminEmail) headers['X-User-Email'] = adminEmail
+    return request('feedback', { headers })
+  },
+  async submitFeedback(message, userEmail) {
+    return request('feedback', { method: 'POST', body: { message, userEmail } })
+  },
 }
 
 export default api
